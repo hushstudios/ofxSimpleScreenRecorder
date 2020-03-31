@@ -77,25 +77,23 @@ public:
         for(int i = 0; i < numBffr; i++)
             pixels[i] = ofPixels();
         
-        path = _path == "" ? ofDirectory::ofDirectory(_path).getAbsolutePath() + "/" : _path;
+        path = _path == "" ? ofDirectory(_path).getAbsolutePath() + "/" : _path;
         std::cout << "ofxSSR::target path - " << path << endl;
         
-        isRunning = false;
         isInit = true;
         stopTriggered = false;
     }
     
     void start(){
-        if(!isRunning){
+        if(!isThreadRunning()){
             reset();
             startThread();
-            isRunning = true;
         } else
             std::cout << "ofxSSR::thread running" << endl;
     }
     
     void stop(){
-        if(isRunning)
+        if(isThreadRunning())
             stopTriggered = true;
         else
             std::cout << "ofxSSR::thread not running" << endl;
@@ -107,23 +105,22 @@ public:
     }
     
     void end(){
+        
+        
         if(stopTriggered) showWarning();
         fbo.end();
         fbo.draw(0,0);
         
         bool _save = saveCount%2 == 0 ? true : false;
-        if(_save && isRunning && !stopTriggered){
+        if(isThreadRunning() && !stopTriggered){
             if(!isInit)
                 bffr_ping.unmap();
             
             isInit = false;
             
             fbo.getTexture().copyTo(bffr_ping);
-            
-            bffr_pong.bind(GL_PIXEL_UNPACK_BUFFER);
-            unsigned char * p = bffr_pong.map<unsigned char>(GL_READ_ONLY);
+            unsigned char * p = bffr_ping.map<unsigned char>(GL_READ_ONLY);
             pixels[bffrCount].setFromPixels(p,w,h,OF_PIXELS_RGB);
-            std::swap(bffr_ping, bffr_pong);
             
             bffrCount++;
             
@@ -135,7 +132,6 @@ public:
         saveCount++;
         
         if(stopTriggered && bffrCount-1 <= thrdBffrCount){
-            isRunning = false;
             runFFMpeg();
             reset();
             stopThread();
@@ -150,14 +146,13 @@ private:
     int w, h, bffrCount, thrdBffrCount, saveCount, numBffr = 9999;
     std::string path;
     ofFbo fbo;
-    ofBufferObject bffr_ping, bffr_pong;
+    ofBufferObject bffr_ping;
     vector<ofPixels> pixels;
-    bool isRunning, isInit, stopTriggered;
+    bool isInit, stopTriggered;
     
     void initBuffer(){
         fbo.allocate(w,h,GL_RGB);
         bffr_ping.allocate(w*h*3,GL_DYNAMIC_READ);
-        bffr_pong.allocate(w*h*3,GL_DYNAMIC_READ);
     }
     
     void reset(){
@@ -220,21 +215,28 @@ private:
     }
     
     void threadedFunction(){
+        lock();
         std::cout << "ofxSSR::thread initiated" << endl;
         ofSleepMillis(1000);
         std::cout << "ofxSSR::thread started" << endl;
         
-        while(isRunning){
+        while(isThreadRunning()){
+            
             std::cout<< "ofxSSR::saved buffers - "  << thrdBffrCount << " ea / stored buffers - " << bffrCount-1 << " ea" << endl;
             if(stopTriggered)
                 std::cout<< "ofxSSR::rendering process - " << getProgress() << "%" << endl << endl << "//////////////////////////" << endl << "// DO NOT CLOSE THE APP //" << endl << "//////////////////////////" << endl << endl;
             
             std::string _p = getPath(path, thrdBffrCount);
+            
+            
             ofSaveImage(pixels[thrdBffrCount],_p);
             
             thrdBffrCount++;
+            
+            
         }
         std::cout << "ofxSSR::thread ended" << endl;
+        unlock();
     }
     
     float getProgress(){
